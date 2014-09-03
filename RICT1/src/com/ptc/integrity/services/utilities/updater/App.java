@@ -1,3 +1,4 @@
+package com.ptc.integrity.services.utilities.updater;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -31,8 +32,9 @@ public class App{
 	public static final String PROPERTY_SERVER_PORT = "SERVER_PORT";
 	public static final String PROPERTY_OLD_SERVER_HOSTNAMES = "OLD_SERVER_HOSTNAMES";
 	public static final String PROPERTY_HOTFIXES_DIR = "HOTFIXES_DIR";
+	public static final String PROPERTY_SP = "SERVICEPACKS_DIR";
 	
-	public static String oldClientDir, installAppDir, appDir, userHome, mksDir, SIDistDir, serverHostname, serverPort, newIntegrityClientDir, hotfixesDir;
+	public static String oldClientDir, installAppDir, appDir, userHome, mksDir, SIDistDir, serverHostname, serverPort, newIntegrityClientDir, hotfixesDir, spDir;
 	public static List<String> oldServerHostnames;
 	public static PropertiesConfiguration clientInstallProp;
 	
@@ -85,42 +87,54 @@ public class App{
 			oldServerHostnames.add((String)o);
 		}
 		hotfixesDir = config.getString(PROPERTY_HOTFIXES_DIR,installAppDir + File.separator+"hotfixes");
+		spDir = config.getString(PROPERTY_SP, installAppDir + File.separator+"sp");
 		
 		api = new APIUtils();
 	
 	}
 	
-    public static void main( String[] args ){    	
-
+    public static void main( String[] args ) throws InterruptedException{    
+   	
         mainStart = new Timestamp(new java.util.Date().getTime());
-
+        System.out.println("Please enter your credentials for " + serverHostname);
+        String userName = readFromConsole("User Name:");
+    	String password = readFromConsole("Password:");
+    	
+    	
+        log.info("Checking rict.propeties file");
     	if( !checkProperties()) {
     		abortApp();
     	}
-/*
+
     	
+    	log.info("Exiting Integrity client");
     	if (WindowsUtils.ifProcessRunning("IntegrityClient.exe")) {
     		APIUtils.exitIntegrityClient();
-    		log.info("Exiting client");
+
     		if (WindowsUtils.ifProcessRunning("IntegrityClient.exe")) {
     			WindowsUtils.killProcess("IntegrityClient.exe");
     		}
 
     	}
-		*/
-        String userName = readFromConsole("Enter User Name:");
-    	String password = readFromConsole("Enter your password:");
-    	backUpMksDirs();
+    	
+    	Thread.sleep(2000);
+		
 
+    	backUpMksDirs();
     	uninstallIntegrityClient();
     	installNewIntegrityClient();
-
+    	//installServicePacks();
     	installHotfixes();
+    	
     	// update viewsets
+    	System.out.println("Updating Viewsets...");
     	replaceViewsetsSettings(new File(mksDir + File.separator + "viewset" +File.separator+"user") , serverHostname, "7001");
+    	
 
     	// update sandboxes
+    	System.out.println("Connecting Integrity...");
     	api.connectToIntegrity(userName, password);
+    	System.out.println("Reimporting sandboxes...");
     	for ( String oldHostname : oldServerHostnames) {
     		List<String> sandboxes = api.getSanboxesRegisteredTo(oldHostname);
         	for (String sandbox : sandboxes) {
@@ -166,6 +180,35 @@ public class App{
 		}
     }
     
+    private static void installServicePacks() {
+    	Timestamp start;
+	    start = new Timestamp(new java.util.Date().getTime());
+	    System.out.println("[" + start + "] Installing servicepacks...");
+	    String pathToPatchClient = newIntegrityClientDir +File.separator +"bin"+File.separator+"PatchClient.exe";
+
+	    
+	    File patchClient = new File(pathToPatchClient);
+	    if (!patchClient.exists() ){
+	    	log.error("PatchClient.exe not found under: "+pathToPatchClient );
+	    	abortApp();
+	    	return;
+	    }
+	   
+	    File spFolder = new File(spDir);
+	    File[] spS = spFolder.listFiles();
+
+	    for ( File sp : spS) {
+	    	try {
+	    		log.info("Installing service pack: "+sp.getName());
+				WindowsUtils.startProcess(pathToPatchClient, "\""+sp.getAbsolutePath()+"\"", processWorkTimeLimit, processCheckInterval);
+
+			} catch (IOException e) {
+				log.error(e);
+				abortApp();
+			}	    	
+	    }
+    }
+    
     public static void installHotfixes(){
     	Timestamp start;
 	    start = new Timestamp(new java.util.Date().getTime());
@@ -181,10 +224,17 @@ public class App{
 	    }
 	   
 	    File hotfixesFolder = new File(hotfixesDir);
+	    if (!hotfixesFolder.exists()) {
+		    System.out.println("[" + new Timestamp(new java.util.Date().getTime()) + "] Hotfixes directory does't exist in ["+hotfixesDir+"], installing hotfixes ABORTED...");
+		    log.warn("[" + new Timestamp(new java.util.Date().getTime()) + "] Hotfixes directory does't exist in ["+hotfixesDir+"], installing hotfixes ABORTED...");
+		    return;
+	    }
+	    
 	    File[] hotfixes = hotfixesFolder.listFiles();
 
 	    for ( File hotfix : hotfixes) {
 	    	try {
+	    		log.info("Installing hotfix: " + hotfix.getName());
 				WindowsUtils.startProcess(pathToPatchClient, "\""+hotfix.getAbsolutePath()+"\"", processWorkTimeLimit, processCheckInterval);
 			} catch (IOException e) {
 				log.error(e);
@@ -292,9 +342,17 @@ public class App{
     	    WindowsUtils.startProcess(pathToProcess, "-f "+propertiesFileName, processWorkTimeLimit , processCheckInterval);      
         	stop = new Timestamp(new java.util.Date().getTime());
     		if (WindowsUtils.checkExitCode() == 0){
-    			String message = "[" + stop + "] New Integrity Client was successful installed. Time duration: " +Utils.timeDuration(start);
-    			System.out.println(message);
-    			log.info(message);
+    			File newIntegrityPatchClient= new File(newIntegrityClientDir + File.separator + "bin" + File.separator+ "PatchClient.exe");
+    			if(newIntegrityPatchClient.exists()){
+	    			String message = "[" + stop + "] New Integrity Client was successful installed. Time duration: " +Utils.timeDuration(start);
+	    			System.out.println(message);
+	    			log.info(message);
+    			} else {
+        			String message = "[" + stop + "] Error occurred while installing Integrity Client. Time duration: " +Utils.timeDuration(start);
+        			System.out.println(message);
+        			log.error(message);
+        			return;
+    			}
     			
     		}else {
     			String message = "[" + stop + "] Error occurred while installing Integrity Client. Time duration: " +Utils.timeDuration(start);
@@ -441,6 +499,7 @@ public class App{
     private static boolean checkProperties(){
     	File oldClientFolder = new File(oldClientDir);
     	File installatorFolder = new File(installAppDir);
+    	//File hotfixesFolder = new File(hotfixesDir);
 		File mksclient = new File(installatorFolder + File.separator + "mksclient.exe");
 		File mksprop = new File(installatorFolder + File.separator + "mksclient.properties");
 		
@@ -450,6 +509,15 @@ public class App{
     		log.error("Old Client app directory not found under [" + oldClientFolder.getAbsolutePath() +"]");
     		return false;
     	}
+    	
+    	/*
+    	if (hotfixesFolder.isDirectory()){
+    		log.info("Found hotfixes directory [" + oldClientFolder.getAbsolutePath()+"]");
+    	} else {
+    		log.error("Hotfixes directory not found under [" + hotfixesFolder.getAbsolutePath() +"]");
+    		return false;
+    	}
+    	*/
     	if (installatorFolder.isDirectory()) {
     		if (mksclient.exists()) {
     			log.info("Found mksclinet.exe");

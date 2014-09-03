@@ -1,3 +1,4 @@
+package com.ptc.integrity.services.utilities.updater;
 
 
 import java.io.BufferedReader;
@@ -80,17 +81,22 @@ public class WindowsUtils {
     	try {
 	    	String command;
 	    	if (processParams != null){
-	    		command = "cmd /c "+pathToProcess+" "+ processParams; //TODO uncomment
+    		command = "cmd /c \""+pathToProcess+"\" "+ processParams; //TODO uncomment
 	    		//command = pathToProcess+" "+ processParams;
 	    		process = runTime.exec(command);
 	    	} else {
-	    		command = "cmd /c "+pathToProcess;
+	    		command = "cmd /c \""+pathToProcess+"\"";
 	    		process = runTime.exec(command);
 	    	}
     	} catch (SecurityException se) {
     		log.error(se);
     	}
-
+    	
+    	try {
+			Thread.sleep(5000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
     	log.info("Process: "+ pathToProcess+ " was started at: " + start);
 
     	
